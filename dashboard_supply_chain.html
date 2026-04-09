@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Supply Chain — Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f4f5f7; --surface: #ffffff; --surface2: #f0f1f3;
+    --text: #1a1a2e; --muted: #6b7280; --border: #e5e7eb;
+    --teal: #1D9E75; --teal-l: #E1F5EE;
+    --purple: #7F77DD; --purple-l: #EEEDFE;
+    --red: #E24B4A; --red-l: #FCEBEB;
+    --amber: #BA7517; --amber-l: #FAEEDA;
+    --blue: #378ADD; --blue-l: #E6F1FB;
+    --radius: 12px; --radius-sm: 8px;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .topbar { background: var(--surface); border-bottom: 1px solid var(--border);
+            padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; }
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .topbar-icon { width: 32px; height: 32px; background: var(--purple-l);
+                 border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+  .topbar-icon svg { width: 18px; height: 18px; }
+  .topbar-title { font-size: 16px; font-weight: 600; color: var(--text); }
+  .topbar-sub   { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .topbar-date  { font-size: 12px; color: var(--muted);
+                  background: var(--surface2); padding: 6px 14px; border-radius: 20px; }
+
+  .main { padding: 20px 28px; max-width: 1400px; margin: 0 auto; }
+
+  .kpi-grid { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 12px; margin-bottom: 16px; }
+  .kpi { background: var(--surface); border-radius: var(--radius-sm); padding: 16px;
+         border: 1px solid var(--border); }
+  .kpi-label { font-size: 11px; font-weight: 500; color: var(--muted); text-transform: uppercase;
+               letter-spacing: .05em; margin-bottom: 8px; }
+  .kpi-val   { font-size: 26px; font-weight: 700; line-height: 1; }
+  .kpi-sub   { font-size: 11px; margin-top: 6px; }
+  .kpi-bar   { height: 3px; background: var(--border); border-radius: 2px; margin-top: 10px; }
+  .kpi-bar-f { height: 100%; border-radius: 2px; }
+
+  .row { display: grid; gap: 12px; margin-bottom: 12px; }
+  .r-3-1 { grid-template-columns: 3fr 2fr; }
+  .r-2   { grid-template-columns: 1fr 1fr; }
+  .r-3   { grid-template-columns: repeat(3, 1fr); }
+
+  .card { background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border);
+          padding: 18px 20px; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .card-title { font-size: 13px; font-weight: 600; color: var(--text); }
+  .card-badge { font-size: 10px; padding: 3px 9px; border-radius: 10px; font-weight: 600; }
+  .b-ok   { background: var(--teal-l);   color: #085041; }
+  .b-warn { background: var(--amber-l);  color: #633806; }
+  .b-bad  { background: var(--red-l);    color: #791F1F; }
+  .b-info { background: var(--blue-l);   color: #0C447C; }
+
+  .chart-wrap { position: relative; }
+
+  table.dt { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.dt th { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing:.04em;
+                color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+  table.dt td { padding: 8px 8px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle; }
+  table.dt tr:last-child td { border-bottom: none; }
+  table.dt tr:hover td { background: var(--surface2); }
+
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+  .legend-item { display: flex; align-items: center; font-size: 11px; color: var(--muted); }
+
+  .hbar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .hbar-lbl  { font-size: 12px; color: var(--text); width: 72px; flex-shrink: 0;
+               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+  .hbar-track{ flex: 1; background: var(--surface2); border-radius: 4px; height: 12px; }
+  .hbar-fill { height: 100%; border-radius: 4px; transition: width .3s; }
+  .hbar-val  { font-size: 12px; color: var(--muted); width: 40px; text-align: right; flex-shrink: 0; }
+
+  .no-ent-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .no-ent-lbl { font-size: 11px; color: var(--text); flex: 1; }
+  .no-ent-bar { flex: 2; background: var(--surface2); border-radius: 4px; height: 10px; }
+  .no-ent-fill{ height: 100%; border-radius: 4px; background: var(--red); }
+  .no-ent-val { font-size: 11px; color: var(--muted); width: 32px; text-align: right; flex-shrink: 0; }
+
+  .alert-box { background: var(--amber-l); border: 1px solid #FAC775; border-radius: var(--radius-sm);
+               padding: 12px 14px; font-size: 12px; color: #633806; margin-top: 12px; line-height: 1.5; }
+  .alert-title { font-weight: 600; margin-bottom: 4px; }
+
+  .footer { text-align: center; font-size: 11px; color: var(--muted); padding: 20px; }
+
+  @media (max-width: 900px) {
+    .kpi-grid { grid-template-columns: repeat(3, 1fr); }
+    .r-3-1, .r-2, .r-3 { grid-template-columns: 1fr; }
+    .main { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="topbar-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#7F77DD" stroke-width="2">
+        <path d="M1 3h15v13H1zM16 8l4 2v6h-4z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>
+      </svg>
+    </div>
+    <div>
+      <div class="topbar-title">Supply Chain — Dashboard Analítico</div>
+      <div class="topbar-sub">Falabella + Sodimac · Región Metropolitana / Valparaíso</div>
+    </div>
+  </div>
+  <div class="topbar-date">Datos al 2026-03-02</div>
+</div>
+
+<div class="main">
+
+  <!-- KPI CARDS -->
+  <div class="kpi-grid">
+    <div class="kpi">
+      <div class="kpi-label">Total viajes</div>
+      <div class="kpi-val" style="color:var(--purple)">1,013</div>
+      <div class="kpi-sub" style="color:var(--muted)">530 terminados · 292 pendientes</div>
+      <div class="kpi-bar"><div class="kpi-bar-f" style="width:100%;background:var(--purple)"></div></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">On-Time Delivery</div>
+      <div class="kpi-val" style="color:var(--teal)">100%</div>
+      <div class="kpi-sub" style="color:var(--teal)">↑ Todos los viajes terminados a tiempo</div>
+      <div class="kpi-bar"><div class="kpi-bar-f" style="width:100%;background:var(--teal)"></div></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">No entregados</div>
+      <div class="kpi-val" style="color:var(--red)">47.7%</div>
+      <div class="kpi-sub" style="color:var(--red)">↑ 483 de 1,013 viajes</div>
+      <div class="kpi-bar"><div class="kpi-bar-f" style="width:47.7%;background:var(--red)"></div></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Tasa devolución</div>
+      <div class="kpi-val" style="color:var(--amber)">27.2%</div>
+      <div class="kpi-sub" style="color:var(--amber)">275 devoluciones totales</div>
+      <div class="kpi-bar"><div class="kpi-bar-f" style="width:27.2%;background:var(--amber)"></div></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Patentes activas</div>
+      <div class="kpi-val" style="color:var(--blue)">7</div>
+      <div class="kpi-sub" style="color:var(--muted)">10 rutas únicas asignadas</div>
+      <div class="kpi-bar"><div class="kpi-bar-f" style="width:70%;background:var(--blue)"></div></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Volumen total</div>
+      <div class="kpi-val" style="color:var(--text)">53.2 m³</div>
+      <div class="kpi-sub" style="color:var(--muted)">Lead time prom: 0 días</div>
+      <div class="kpi-bar"><div class="kpi-bar-f" style="width:60%;background:#888780"></div></div>
+    </div>
+  </div>
+
+  <!-- FILA 1: Estados + Motivos no entrega + Devoluciones -->
+  <div class="row r-3">
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Viajes por estado</div>
+        <span class="card-badge b-info">1,013 total</span>
+      </div>
+      <div class="chart-wrap" style="height:200px">
+        <canvas id="chartEstados"></canvas>
+      </div>
+      <div class="legend">
+        <div class="legend-item"><span class="dot" style="background:#5DCAA5"></span>Terminado (530)</div>
+        <div class="legend-item"><span class="dot" style="background:#7F77DD"></span>Pendiente (292)</div>
+        <div class="legend-item"><span class="dot" style="background:#EF9F27"></span>Planificado (191)</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Motivos de no entrega</div>
+        <span class="card-badge b-bad">483 casos</span>
+      </div>
+      <div style="margin-top:6px">
+        <div class="no-ent-row">
+          <div class="no-ent-lbl">Producto no cargado</div>
+          <div class="no-ent-bar"><div class="no-ent-fill" style="width:100%"></div></div>
+          <div class="no-ent-val">133</div>
+        </div>
+        <div class="no-ent-row">
+          <div class="no-ent-lbl">Sin moradores</div>
+          <div class="no-ent-bar"><div class="no-ent-fill" style="width:86%;background:#EF9F27"></div></div>
+          <div class="no-ent-val">115</div>
+        </div>
+        <div class="no-ent-row">
+          <div class="no-ent-lbl">Tiempo excedido</div>
+          <div class="no-ent-bar"><div class="no-ent-fill" style="width:31%;background:#7F77DD"></div></div>
+          <div class="no-ent-val">41</div>
+        </div>
+        <div class="no-ent-row">
+          <div class="no-ent-lbl">Sin información</div>
+          <div class="no-ent-bar"><div class="no-ent-fill" style="width:2%;background:#B4B2A9"></div></div>
+          <div class="no-ent-val">2</div>
+        </div>
+        <div class="no-ent-row">
+          <div class="no-ent-lbl">Prod. con problemas</div>
+          <div class="no-ent-bar"><div class="no-ent-fill" style="width:1%;background:#B4B2A9"></div></div>
+          <div class="no-ent-val">1</div>
+        </div>
+      </div>
+      <div class="alert-box">
+        <div class="alert-title">Alerta: producto no cargado</div>
+        133 viajes no entregados por producto no cargado — revisar proceso de carga en bodega.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Devoluciones por motivo</div>
+        <span class="card-badge b-warn">275 total</span>
+      </div>
+      <div class="chart-wrap" style="height:200px">
+        <canvas id="chartDev"></canvas>
+      </div>
+      <div class="legend" style="margin-top:14px">
+        <div class="legend-item"><span class="dot" style="background:#E24B4A"></span>Tienda Errónea (231 · 84%)</div>
+        <div class="legend-item"><span class="dot" style="background:#B4B2A9"></span>Sin observación (44 · 16%)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FILA 2: Patentes + Commerce -->
+  <div class="row r-3-1">
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Rendimiento por patente</div>
+        <span class="card-badge b-ok">OTD 100% todas</span>
+      </div>
+      <div style="margin-top:4px">
+        <div style="display:grid;grid-template-columns:80px 1fr 60px 70px 60px;gap:6px;font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:0 0 6px;border-bottom:1px solid var(--border);margin-bottom:8px;">
+          <span>Patente</span><span>No entregados</span><span style="text-align:right">Entregas</span><span style="text-align:right">No entregados</span><span style="text-align:right">OTD</span>
+        </div>
+        <div class="hbar-row" style="display:grid;grid-template-columns:80px 1fr 60px 70px 60px;gap:6px;align-items:center;margin-bottom:8px;">
+          <span style="font-size:12px;font-weight:600">JKDP54</span>
+          <div class="hbar-track"><div class="hbar-fill" style="width:0%;background:var(--red)"></div></div>
+          <span style="font-size:12px;text-align:right">249</span>
+          <span style="font-size:12px;text-align:right;color:var(--teal);font-weight:600">0</span>
+          <span style="font-size:12px;text-align:right">100%</span>
+        </div>
+        <div style="display:grid;grid-template-columns:80px 1fr 60px 70px 60px;gap:6px;align-items:center;margin-bottom:8px;">
+          <span style="font-size:12px;font-weight:600">STKY45</span>
+          <div class="hbar-track"><div class="hbar-fill" style="width:82%;background:var(--red)"></div></div>
+          <span style="font-size:12px;text-align:right">154</span>
+          <span style="font-size:12px;text-align:right;color:var(--red);font-weight:600">126</span>
+          <span style="font-size:12px;text-align:right">100%</span>
+        </div>
+        <div style="display:grid;grid-template-columns:80px 1fr 60px 70px 60px;gap:6px;align-items:center;margin-bottom:8px;">
+          <span style="font-size:12px;font-weight:600">STKY72</span>
+          <div class="hbar-track"><div class="hbar-fill" style="width:88%;background:var(--red)"></div></div>
+          <span style="font-size:12px;text-align:right">150</span>
+          <span style="font-size:12px;text-align:right;color:var(--red);font-weight:600">132</span>
+          <span style="font-size:12px;text-align:right">100%</span>
+        </div>
+        <div style="display:grid;grid-template-columns:80px 1fr 60px 70px 60px;gap:6px;align-items:center;margin-bottom:8px;">
+          <span style="font-size:12px;font-weight:600">RSPD18</span>
+          <div class="hbar-track"><div class="hbar-fill" style="width:50%;background:var(--amber)"></div></div>
+          <span style="font-size:12px;text-align:right">191</span>
+          <span style="font-size:12px;text-align:right;color:var(--amber);font-weight:600">96</span>
+          <span style="font-size:12px;text-align:right">100%</span>
+        </div>
+        <div style="display:grid;grid-template-columns:80px 1fr 60px 70px 60px;gap:6px;align-items:center;margin-bottom:8px;">
+          <span style="font-size:12px;font-weight:600">RTZK81</span>
+          <div class="hbar-track"><div class="hbar-fill" style="width:51%;background:var(--amber)"></div></div>
+          <span style="font-size:12px;text-align:right">189</span>
+          <span style="font-size:12px;text-align:right;color:var(--amber);font-weight:600">96</span>
+          <span style="font-size:12px;text-align:right">100%</span>
+        </div>
+        <div style="display:grid;grid-template-columns:80px 1fr 60px 70px 60px;gap:6px;align-items:center;margin-bottom:8px;">
+          <span style="font-size:12px;font-weight:600">RDBW74</span>
+          <div class="hbar-track"><div class="hbar-fill" style="width:58%;background:var(--amber)"></div></div>
+          <span style="font-size:12px;text-align:right">53</span>
+          <span style="font-size:12px;text-align:right;color:var(--amber);font-weight:600">31</span>
+          <span style="font-size:12px;text-align:right">100%</span>
+        </div>
+        <div style="display:grid;grid-template-columns:80px 1fr 60px 70px 60px;gap:6px;align-items:center;margin-bottom:4px;">
+          <span style="font-size:12px;font-weight:600">SSJ070</span>
+          <div class="hbar-track"><div class="hbar-fill" style="width:7%;background:var(--teal)"></div></div>
+          <span style="font-size:12px;text-align:right">27</span>
+          <span style="font-size:12px;text-align:right;color:var(--teal);font-weight:600">2</span>
+          <span style="font-size:12px;text-align:right">100%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Por commerce</div>
+        <span class="card-badge b-info">2 clientes</span>
+      </div>
+      <div class="chart-wrap" style="height:180px">
+        <canvas id="chartCommerce"></canvas>
+      </div>
+      <div style="margin-top:16px">
+        <table class="dt">
+          <thead><tr><th>Commerce</th><th>Viajes</th><th>No entregado %</th><th>Volumen m³</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="dot" style="background:#7F77DD"></span><strong>Falabella</strong></td>
+              <td>1,011</td>
+              <td><span style="color:var(--red);font-weight:600">47.7%</span></td>
+              <td>53.22</td>
+            </tr>
+            <tr>
+              <td><span class="dot" style="background:#5DCAA5"></span><strong>Sodimac</strong></td>
+              <td>2</td>
+              <td><span style="color:var(--red);font-weight:600">50.0%</span></td>
+              <td>0.006</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:14px">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Regiones cubiertas</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px">
+            <span>Región Metropolitana</span>
+            <span style="font-weight:600;color:var(--purple)">986 viajes</span>
+          </div>
+          <div style="background:var(--border);border-radius:4px;height:8px">
+            <div style="width:97%;height:100%;border-radius:4px;background:var(--purple)"></div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;margin-top:4px">
+            <span>Región de Valparaíso</span>
+            <span style="font-weight:600;color:var(--teal)">27 viajes</span>
+          </div>
+          <div style="background:var(--border);border-radius:4px;height:8px">
+            <div style="width:3%;height:100%;border-radius:4px;background:var(--teal)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FILA 3: Tabla detalle -->
+  <div class="card">
+    <div class="card-head">
+      <div class="card-title">Detalle de viajes — muestra representativa</div>
+      <span class="card-badge b-info">gold_fact_viajes · 1,013 registros</span>
+    </div>
+    <table class="dt">
+      <thead>
+        <tr>
+          <th>Documento</th><th>Estado</th><th>Patente</th><th>Commerce</th>
+          <th>Localidad</th><th>Región</th><th>On Time</th><th>No entregado</th><th>Motivo</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>1000…000</td><td><span class="card-badge b-ok">Terminado</span></td><td>STKY45</td><td>Falabella</td><td>Santiago Centro</td><td>R. Metropolitana</td><td><span class="card-badge b-ok">Sí</span></td><td><span class="card-badge b-ok">No</span></td><td>—</td></tr>
+        <tr><td>1000…000</td><td><span class="card-badge b-warn">Pendiente</span></td><td>STKY45</td><td>Falabella</td><td>Santiago Centro</td><td>R. Metropolitana</td><td><span class="card-badge b-ok">Sí</span></td><td><span class="card-badge b-bad">Sí</span></td><td>Tiempo excedido</td></tr>
+        <tr><td>1400…000</td><td><span class="card-badge b-ok">Terminado</span></td><td>STKY45</td><td>Falabella</td><td>Santiago Centro</td><td>R. Metropolitana</td><td><span class="card-badge b-ok">Sí</span></td><td><span class="card-badge b-ok">No</span></td><td>—</td></tr>
+        <tr><td>1000…000</td><td><span class="card-badge b-ok">Terminado</span></td><td>JKDP54</td><td>Falabella</td><td>Las Condes</td><td>R. Metropolitana</td><td><span class="card-badge b-ok">Sí</span></td><td><span class="card-badge b-ok">No</span></td><td>—</td></tr>
+        <tr><td>1000…000</td><td><span class="card-badge b-info">Planificado</span></td><td>RSPD18</td><td>Falabella</td><td>Viña del Mar</td><td>R. Valparaíso</td><td><span class="card-badge b-ok">Sí</span></td><td><span class="card-badge b-bad">Sí</span></td><td>Sin moradores</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<div class="footer">Supply Chain Dashboard · Datos reales de gold_fact_viajes, gold_kpi_entregas, gold_kpi_devoluciones, gold_kpi_por_patente, gold_kpi_por_commerce</div>
+
+<script>
+Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+Chart.defaults.font.size = 11;
+Chart.defaults.color = '#6b7280';
+
+new Chart(document.getElementById('chartEstados'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Terminado', 'Pendiente', 'Planificado'],
+    datasets: [{
+      data: [530, 292, 191],
+      backgroundColor: ['#5DCAA5', '#7F77DD', '#EF9F27'],
+      borderWidth: 2, borderColor: '#fff'
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, cutout: '65%',
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw}` } }
+    }
+  }
+});
+
+new Chart(document.getElementById('chartDev'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Tienda Errónea', 'Sin observación'],
+    datasets: [{
+      data: [231, 44],
+      backgroundColor: ['#E24B4A', '#B4B2A9'],
+      borderWidth: 2, borderColor: '#fff'
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, cutout: '65%',
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw} (${(ctx.raw/275*100).toFixed(1)}%)` } }
+    }
+  }
+});
+
+new Chart(document.getElementById('chartCommerce'), {
+  type: 'bar',
+  data: {
+    labels: ['Falabella', 'Sodimac'],
+    datasets: [
+      { label: 'Viajes totales', data: [1011, 2], backgroundColor: '#CECBF6', borderRadius: 4 },
+      { label: 'No entregados', data: [482, 1], backgroundColor: '#F09595', borderRadius: 4 },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 12 } } },
+    scales: {
+      x: { grid: { display: false } },
+      y: { grid: { color: '#f0f1f3' }, ticks: { stepSize: 250 } }
+    }
+  }
+});
+</script>
+</body>
+</html>
