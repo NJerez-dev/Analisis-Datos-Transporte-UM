@@ -1,114 +1,146 @@
-# 🚚 Análisis de Transporte de Última Milla
+# Análisis de Transporte de Última Milla
 
-Este proyecto analiza la operación logística de última milla, evaluando el desempeño en entregas, nivel de servicio (OTD) y principales causas de ineficiencia en el proceso de distribución.
+Pipeline de análisis de operación logística (transporte de última milla) construido con **arquitectura medallón** sobre datos reales de viajes y devoluciones. El proyecto está siendo **refactorizado a estándar de Data Engineering** desde notebooks ad-hoc a un paquete reproducible con tests, CI y orquestación.
+
+> **Estado**: refactor en curso en la rama [`refactor/de-grade`](https://github.com/NJerez-dev/Analisis-Datos-Transporte-UM/tree/refactor/de-grade). La rama `main` conserva la versión original basada en notebooks.
+
+## Problema de negocio
+
+Operador logístico con dependencia operativa de un único cliente retail (>99% de los viajes). El nivel de servicio reportado (OTD = 100% en entregas finalizadas) ocultaba un problema mayor aguas arriba: casi la mitad de los viajes no llegaban a entregarse, y la causa raíz no estaba en el transporte sino en bodega y preparación de pedidos.
+
+El pipeline materializa los KPIs operativos para que ese problema sea visible **antes** del viaje, no después.
+
+## Arquitectura
+
+```mermaid
+flowchart LR
+    subgraph Bronze
+        A[Excel<br/>fuente operativa]
+    end
+    subgraph Silver
+        B[Limpieza,<br/>tipado y joins]
+    end
+    subgraph Gold
+        C[KPIs:<br/>OTD, no entrega,<br/>devoluciones, motivos]
+    end
+    subgraph Consumo
+        D[Dashboard<br/>Power BI / HTML]
+    end
+    A --> B --> C --> D
+```
+
+**Diseño**: las tres capas son notebooks/módulos independientes que se pueden orquestar con `make run-all` (o por separado). Bronze lee la fuente Excel sin transformar; Silver normaliza tipos, fechas, regiones, y resuelve la relación viajes ↔ devoluciones; Gold agrega y produce los KPIs que consume el dashboard.
+
+## Stack técnico
+
+| Capa | Tecnología |
+|---|---|
+| Lenguaje | Python 3.12 |
+| Gestor de entorno | [`uv`](https://docs.astral.sh/uv/) |
+| Procesamiento | `pandas`, `pyarrow` |
+| Validación de datos | `pandera` |
+| Lectura de Excel | `openpyxl` |
+| Tests | `pytest` |
+| Lint / formato | `ruff` |
+| Visualización | Power BI + dashboard HTML |
+
+## Cómo correr
+
+**Pre-requisitos**: [uv](https://docs.astral.sh/uv/) instalado. Python lo provee `uv` automáticamente.
+
+```bash
+git clone https://github.com/NJerez-dev/Analisis-Datos-Transporte-UM.git
+cd Analisis-Datos-Transporte-UM
+uv sync
+```
+
+Para correr sobre la **muestra anonimizada** versionada en el repo (50 viajes + 25 devoluciones, suficiente para verificar el pipeline):
+
+```bash
+# Una vez que el refactor exponga los puntos de entrada:
+uv run python -m transporte.bronze --input data/sample/transporte_um_sample.xlsx
+uv run python -m transporte.silver
+uv run python -m transporte.gold
+```
+
+Para correr sobre **datos reales**, colocar el dataset crudo en `data/raw/transporte_um.xlsx` (no se distribuye vía git) y apuntar el `--input` a esa ruta. Para regenerar la muestra anonimizada:
+
+```bash
+uv run python scripts/build_sample.py
+```
+
+## Estructura del repositorio
+
+```
+.
+├── src/transporte/         # Código del pipeline (bronze, silver, gold) — TBD
+├── notebooks/
+│   └── legacy/             # Notebooks originales pre-refactor (referencia histórica)
+├── data/
+│   ├── raw/                # Dataset crudo (gitignored)
+│   ├── processed/          # Outputs intermedios Parquet (gitignored)
+│   └── sample/             # Muestra anonimizada versionada (50+25 filas)
+├── scripts/
+│   └── build_sample.py     # Regenera la muestra anonimizada desde el crudo
+├── tests/                  # Suite pytest (TBD)
+├── docs/                   # Documentación adicional
+├── dashboard_supply_chain.html  # Dashboard estático
+├── pyproject.toml          # Proyecto + dependencias + ruff/pytest
+└── uv.lock                 # Lockfile reproducible
+```
+
+## Principales hallazgos
+
+Sobre 1.013 viajes operativos analizados:
+
+- **47,7% de no entregas** — el OTD del 100% en finalizados oculta un funnel previo roto.
+- **27,2% de devoluciones**, mayoritariamente por **errores en tienda** (84%).
+- Tres causas principales de no entrega: **producto no cargado (133)**, **sin moradores (115)**, **tiempo excedido (41)**.
+- **Concentración de cliente**: 1.011 de 1.013 viajes corresponden a un solo retailer → riesgo estructural.
+- **Concentración geográfica**: 986 viajes en Región Metropolitana, 27 en Valparaíso.
+
+**Insight central**: la mayoría de las fallas **no son del transporte** sino de procesos aguas arriba (picking, carga, preparación). Un mejor monitoreo en bodega rinde más que optimizar rutas.
+
+### Recomendaciones operativas
+- Validaciones previas al despacho (control de carga vs. orden).
+- KPIs de bodega visibles antes del viaje, no después.
+- Diversificación de cartera para reducir riesgo de cliente único.
+- Reasignación de carga entre vehículos según patrón de no entrega.
+
+## Decisiones de diseño
+
+- **Arquitectura medallón** para separar "datos crudos como llegaron" de "datos analíticos confiables". Las tres capas se corren independientes y son auditables.
+- **Excel como fuente bronze**: refleja la realidad operativa (la fuente real es así). El pipeline está preparado para cambiar a CSV/Parquet/DB sin tocar silver/gold.
+- **Parquet en silver y gold**: columnar, comprimido, tipado. Reduce I/O 10-50x respecto a CSV.
+- **`uv` sobre `pip`/`poetry`**: 10-100x más rápido en resolución, lockfile determinista, gestiona Python solo.
+- **Muestra anonimizada versionada**: permite que cualquiera ejecute el pipeline y los tests sin acceso al crudo. Anonimización determinista (hash SHA1) preserva relaciones entre hojas.
+- **`pandas` vs `polars` / `Spark`**: 1.013 filas no justifican Spark; pandas es suficiente y la curva de aprendizaje del equipo lo favorece. Si el dataset crece a millones de filas, migración natural a `polars` o DuckDB.
+
+## Limitaciones conocidas
+
+- **Fuente única** (un cliente, un operador): el modelo no generaliza a multi-cliente sin extender el esquema.
+- **Sin ingestión incremental**: cada corrida procesa el dataset completo. Para producción real, agregar marca de tiempo y filtros por particiones.
+- **Sin orquestador real** (todavía): los pasos se encadenan vía script. Está planeada la migración a Airflow / Prefect.
+- **Sin tests de regresión sobre el dashboard**: cualquier cambio en gold puede romper el dashboard sin alerta.
+- **Datos del primer trimestre 2026**: la estacionalidad y eventos comerciales (Cyber, Black Friday) están subrepresentados.
+
+## Roadmap del refactor
+
+- [x] Estructura DE-grade del repo (entorno reproducible con `uv`, layout estándar).
+- [x] Muestra anonimizada versionada para tests y CI.
+- [ ] Extraer lógica de notebooks a módulos en `src/transporte/{bronze,silver,gold}.py`.
+- [ ] Tests unitarios + smoke test del pipeline completo sobre la muestra.
+- [ ] Validación de schemas con `pandera` (contratos por capa).
+- [ ] Migración de outputs intermedios a Parquet particionado.
+- [ ] CI con GitHub Actions: `ruff` + `pytest` en cada PR.
+- [ ] Diagrama de arquitectura técnico extendido en `docs/`.
+- [ ] Orquestación con Airflow local (Docker) — bloque siguiente del roadmap personal.
+
+## Dashboard
+
+![Dashboard DUM](https://github.com/user-attachments/assets/c2ac7fa6-8294-429b-b7b0-3fa4dfe63570)
+![Métricas resumen](https://github.com/user-attachments/assets/9f554d5e-33ef-4541-a8e2-33f90c7f496d)
 
 ---
 
-## 🔍 Principales Hallazgos
-
-- Se analizaron **1,013 viajes**, de los cuales:
-  - **530 fueron completados**
-  - **292 permanecen pendientes**
-- A pesar de un **OTD del 100% en viajes finalizados**, existe un alto nivel de incidencias operacionales.
-- **47.7% de los viajes no fueron entregados**, lo que representa un riesgo crítico para la operación.
-- La **tasa de devolución alcanza un 27.2%**, indicando fallas en la ejecución de entregas.
-- El principal problema detectado es **"Producto no cargado" (133 casos)**, evidenciando fallas en procesos de preparación en bodega.
-
----
-
-## ⚙️ Metodología
-
-- Modelamiento de datos mediante **arquitectura Medallón (Bronze, Silver, Gold)**
-- Procesamiento y análisis de datos logísticos
-- Visualización de KPIs mediante dashboard
-
----
-
-## 📊 Análisis del Desempeño
-
-### 📦 Estado de los Viajes
-La operación presenta una distribución desigual entre viajes completados, pendientes y planificados, con una proporción importante aún sin ejecutar.
-
-### 🚨 Motivos de No Entrega
-Principales causas identificadas:
-- **Producto no cargado:** 133 casos
-- **Sin moradores:** 115 casos
-- **Tiempo excedido:** 41 casos
-
-> ⚠️ **Insight clave:**  
-> La mayor parte de las fallas no dependen del transporte, sino de procesos previos (bodega y preparación de pedidos).
-
----
-
-### 🔁 Devoluciones
-- Total: **275 devoluciones**
-- Principal causa: **Error en tienda (84%)**
-
-> Esto sugiere problemas en:
-> - preparación de pedidos
-> - control de calidad previo al despacho
-
----
-
-### 🚛 Rendimiento por Vehículo (Patente)
-
-Se identifican diferencias relevantes en desempeño:
-- Algunas rutas concentran gran cantidad de **no entregas**
-- Otras mantienen operación más eficiente
-
-> 💡 Oportunidad: redistribución de carga y optimización de rutas
-
----
-
-### 🏪 Análisis por Cliente (Commerce)
-
-- **Falabella concentra prácticamente toda la operación (1,011 viajes)**
-- Presenta una tasa de **47.7% de no entrega**
-
-> ⚠️ Alta dependencia operativa de un solo cliente  
-> → riesgo estructural en la operación
-
----
-
-### 🌍 Cobertura Geográfica
-
-- **Región Metropolitana:** 986 viajes  
-- **Región de Valparaíso:** 27 viajes  
-
-> Operación altamente centralizada, con baja diversificación territorial
-
----
-
-## 🧠 Conclusiones
-
-El análisis evidencia que, aunque los indicadores de cumplimiento de tiempo son altos, existen **fallas críticas en etapas previas a la distribución**, especialmente en:
-
-- Procesos de carga en bodega  
-- Preparación de pedidos  
-- Coordinación logística  
-
-Estas ineficiencias generan:
-- Alto porcentaje de no entregas  
-- Incremento en devoluciones  
-- Impacto directo en costos operacionales  
-
----
-
-## 🚀 Recomendaciones
-
-- Mejorar controles en procesos de **picking y carga**
-- Implementar validaciones previas al despacho
-- Optimizar asignación de rutas y vehículos
-- Reducir dependencia de un solo cliente
-- Monitorear KPIs operacionales en tiempo real
-
----
-
-## 📌 Tecnologías Utilizadas
-
-- Modelamiento de datos
-- SQL / procesamiento de datos
-- Power BI (visualización)
-
-<img width="2446" height="103" alt="Screenshot_1" src="https://github.com/user-attachments/assets/9f554d5e-33ef-4541-a8e2-33f90c7f496d" />
-<img width="1230" height="1100" alt="Dashboard DUM" src="https://github.com/user-attachments/assets/c2ac7fa6-8294-429b-b7b0-3fa4dfe63570" />
+Proyecto personal de portafolio. Refactor en marcha como parte del recorrido de Analista de Datos → Data Engineer.
