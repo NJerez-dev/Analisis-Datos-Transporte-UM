@@ -2,7 +2,7 @@
 
 Pipeline de análisis de operación logística (transporte de última milla) construido con **arquitectura medallón** sobre datos reales de viajes y devoluciones. El proyecto está siendo **refactorizado a estándar de Data Engineering** desde notebooks ad-hoc a un paquete reproducible con tests, CI y orquestación.
 
-> **Estado**: refactor en curso en la rama [`refactor/de-grade`](https://github.com/NJerez-dev/Analisis-Datos-Transporte-UM/tree/refactor/de-grade). La rama `main` conserva la versión original basada en notebooks.
+> **Estado**: refactor en curso. Los notebooks originales se conservan en `notebooks/legacy/` como referencia mientras se extrae la lógica a `src/transporte/`. El roadmap del refactor está al final del README.
 
 ## Problema de negocio
 
