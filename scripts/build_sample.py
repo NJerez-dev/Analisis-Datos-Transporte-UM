@@ -52,7 +52,10 @@ def anonimizar_viajes(df: pd.DataFrame) -> pd.DataFrame:
         lambda v: "ClienteRetailA" if pd.notna(v) else v
     )
     for col in ("LPN", "LPN_Container", "ParentOrder"):
-        out[col] = out[col].apply(lambda v: hash_id(v, col[:3].upper()) if pd.notna(v) else v)
+        prefix = col[:3].upper()
+        out[col] = out[col].apply(
+            lambda v, prefix=prefix: hash_id(v, prefix) if pd.notna(v) else v
+        )
     return out
 
 
