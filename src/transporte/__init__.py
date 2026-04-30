@@ -6,9 +6,9 @@ Capas:
     - `transporte.gold`: KPIs operativos (TBD).
 """
 
-from transporte import bronze, silver
+from transporte import bronze, gold, silver
 
-__all__ = ["bronze", "silver"]
+__all__ = ["bronze", "gold", "silver"]
 
 
 def main() -> None:
