@@ -11,7 +11,20 @@ Lee los parquets Silver y produce 6 tablas Gold:
 | gold_dim_tiempo          | 1 fila por día         | Calendario para Power BI |
 | gold_fact_viajes         | 1 fila por viaje       | Tabla de hechos |
 
-Salida:
+## Engines
+
+Coexisten **dos implementaciones** del cálculo:
+
+- **`engine="sql"` (default)**: ejecuta las queries en `sql/gold/*.sql` con
+  DuckDB. SQL es la verdad operativa.
+- **`engine="pandas"`**: usa las funciones `compute_*` en este módulo. Útil
+  para exploración interactiva con DataFrames y como fallback.
+
+Los tests de regresión (`tests/test_sql_gold.py`) verifican que ambos
+engines producen los mismos resultados. Si divergen, el test apunta a la
+columna y fila exactas.
+
+Salida (idéntica en ambos engines):
 - Parquets en `data/processed/` (consumo programático).
 - CSVs UTF-8 BOM en `data/exports/` (Power BI, Excel).
 
@@ -20,7 +33,8 @@ Uso CLI:
     uv run python -m transporte.gold \\
         --input-dir data/processed \\
         --output-dir data/processed \\
-        --exports-dir data/exports
+        --exports-dir data/exports \\
+        --engine sql      # default; usa --engine pandas para forzar pandas
 """
 
 from __future__ import annotations
@@ -29,12 +43,36 @@ import argparse
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
+from pandera.pandas import DataFrameSchema
 
 from transporte import schemas
+from transporte.sql_runner import run_query, silver_dir_for_sql
 
 log = logging.getLogger(__name__)
+
+Engine = Literal["sql", "pandas"]
+DEFAULT_ENGINE: Engine = "sql"
+
+SQL_QUERIES: dict[str, str] = {
+    "gold_kpi_entregas": "sql/gold/kpi_entregas.sql",
+    "gold_kpi_por_commerce": "sql/gold/kpi_por_commerce.sql",
+    "gold_kpi_por_patente": "sql/gold/kpi_por_patente.sql",
+    "gold_kpi_devoluciones": "sql/gold/kpi_devoluciones.sql",
+    "gold_dim_tiempo": "sql/gold/dim_tiempo.sql",
+    "gold_fact_viajes": "sql/gold/fact_viajes.sql",
+}
+
+SCHEMA_BY_TABLE: dict[str, DataFrameSchema] = {
+    "gold_kpi_entregas": schemas.GOLD_KPI_ENTREGAS_SCHEMA,
+    "gold_kpi_por_commerce": schemas.GOLD_KPI_POR_COMMERCE_SCHEMA,
+    "gold_kpi_por_patente": schemas.GOLD_KPI_POR_PATENTE_SCHEMA,
+    "gold_kpi_devoluciones": schemas.GOLD_KPI_DEVOLUCIONES_SCHEMA,
+    "gold_dim_tiempo": schemas.GOLD_DIM_TIEMPO_SCHEMA,
+    "gold_fact_viajes": schemas.GOLD_FACT_VIAJES_SCHEMA,
+}
 
 DEFAULT_DIR = Path("data/processed")
 DEFAULT_EXPORTS_DIR = Path("data/exports")
@@ -259,22 +297,11 @@ def _write_csv_for_bi(df: pd.DataFrame, path: Path) -> None:
     log.info("  csv     -> %s (%s filas)", path, len(df))
 
 
-def goldify_all(
-    input_dir: Path = DEFAULT_DIR,
-    output_dir: Path = DEFAULT_DIR,
-    exports_dir: Path | None = DEFAULT_EXPORTS_DIR,
-) -> dict[str, Path]:
-    """Calcula y persiste las 6 tablas Gold en parquet (+ CSVs si exports_dir)."""
-    log.info(
-        "Gold transform | input_dir=%s | output_dir=%s | exports_dir=%s",
-        input_dir,
-        output_dir,
-        exports_dir,
-    )
-    viajes = _read_silver_parquet(input_dir / INPUT_VIAJES)
-    devoluciones = _read_silver_parquet(input_dir / INPUT_DEVOLUCIONES)
-
-    tables = {
+def _compute_via_pandas(
+    viajes: pd.DataFrame, devoluciones: pd.DataFrame
+) -> dict[str, pd.DataFrame]:
+    """Calcula las 6 tablas Gold con las funciones pandas `compute_*`."""
+    return {
         "gold_kpi_entregas": compute_kpi_entregas(viajes, devoluciones),
         "gold_kpi_por_commerce": compute_kpi_por_commerce(viajes),
         "gold_kpi_por_patente": compute_kpi_por_patente(viajes),
@@ -282,6 +309,80 @@ def goldify_all(
         "gold_dim_tiempo": compute_dim_tiempo(viajes),
         "gold_fact_viajes": compute_fact_viajes(viajes),
     }
+
+
+def _compute_via_sql(input_dir: Path) -> dict[str, pd.DataFrame]:
+    """Calcula las 6 tablas Gold ejecutando las queries en `sql/gold/`.
+
+    Las queries no producen `_gold_timestamp` ni revalidan tipos para encajar
+    con los schemas; ambos se aplican aquí, dejando el output **idéntico** al
+    de `_compute_via_pandas`.
+    """
+    params = {"silver_dir": silver_dir_for_sql(input_dir)}
+    timestamp = _now_utc_iso()
+    out: dict[str, pd.DataFrame] = {}
+    for table_name, query_path in SQL_QUERIES.items():
+        df = run_query(query_path, params=params)
+        df["_gold_timestamp"] = timestamp
+        if table_name == "gold_fact_viajes":
+            for col in ("entrega_on_time", "flag_no_entregado"):
+                df[col] = df[col].astype(int)
+        if table_name in ("gold_kpi_entregas", "gold_kpi_por_commerce", "gold_kpi_por_patente"):
+            int_cols = [
+                c
+                for c in df.columns
+                if c.startswith(
+                    (
+                        "total_",
+                        "viajes_",
+                        "on_time_",
+                        "no_entregados",
+                        "rutas_",
+                        "patentes_",
+                    )
+                )
+            ]
+            for col in int_cols:
+                df[col] = df[col].astype(int)
+        if table_name == "gold_kpi_devoluciones":
+            df["cantidad"] = df["cantidad"].astype(int)
+        schemas.validate(df, SCHEMA_BY_TABLE[table_name], name=table_name)
+        out[table_name] = df
+    return out
+
+
+def goldify_all(
+    input_dir: Path = DEFAULT_DIR,
+    output_dir: Path = DEFAULT_DIR,
+    exports_dir: Path | None = DEFAULT_EXPORTS_DIR,
+    *,
+    engine: Engine = DEFAULT_ENGINE,
+) -> dict[str, Path]:
+    """Calcula y persiste las 6 tablas Gold en parquet (+ CSVs si `exports_dir`).
+
+    `engine="sql"` (default) ejecuta las queries DuckDB en `sql/gold/`.
+    `engine="pandas"` usa las funciones `compute_*` de este módulo.
+    """
+    log.info(
+        "Gold transform | engine=%s | input_dir=%s | output_dir=%s | exports_dir=%s",
+        engine,
+        input_dir,
+        output_dir,
+        exports_dir,
+    )
+
+    if engine == "sql":
+        # Verificar inputs primero (fail-fast con el mismo error que pandas).
+        _read_silver_parquet(input_dir / INPUT_VIAJES)
+        _read_silver_parquet(input_dir / INPUT_DEVOLUCIONES)
+        tables = _compute_via_sql(input_dir)
+    elif engine == "pandas":
+        viajes = _read_silver_parquet(input_dir / INPUT_VIAJES)
+        devoluciones = _read_silver_parquet(input_dir / INPUT_DEVOLUCIONES)
+        tables = _compute_via_pandas(viajes, devoluciones)
+    else:
+        msg = f"engine debe ser 'sql' o 'pandas', llegó {engine!r}"
+        raise ValueError(msg)
 
     parquet_paths: dict[str, Path] = {}
     for name in GOLD_TABLES_ORDER:
@@ -327,6 +428,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="No genera los CSV de Power BI (solo parquets).",
     )
     parser.add_argument(
+        "--engine",
+        choices=("sql", "pandas"),
+        default=DEFAULT_ENGINE,
+        help=f"Motor de cálculo (default: {DEFAULT_ENGINE}).",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
@@ -345,8 +452,9 @@ def main(argv: list[str] | None = None) -> int:
         input_dir=args.input_dir,
         output_dir=args.output_dir,
         exports_dir=exports_dir,
+        engine=args.engine,
     )
-    log.info("Gold transform OK: %s tablas", len(outputs))
+    log.info("Gold transform OK: %s tablas (engine=%s)", len(outputs), args.engine)
     return 0
 
 

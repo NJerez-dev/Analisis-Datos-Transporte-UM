@@ -55,6 +55,22 @@ Documento que recoge las decisiones técnicas no triviales del refactor del proy
 
 **Excepción mínima**: en la hoja `DEVOLUCIONES`, las columnas con caracteres no-ASCII (`N° Recepción`, `Fecha devolución`) se renombran a snake_case ASCII. Razón: Parquet y SQL no aceptan headers con caracteres especiales, y este renombrado **no pierde información**.
 
+## 4b. Engine dual en Gold (SQL como default, pandas como fallback)
+
+**Decisión** (30 abr 2026): la capa Gold acepta `engine="sql"` (default) o `engine="pandas"`. SQL ejecuta las queries de `sql/gold/*.sql` con DuckDB; pandas ejecuta las funciones `compute_*` del módulo. Ambos producen los mismos Parquets/CSVs.
+
+**Razones**:
+
+- **SQL es el lenguaje del rol DE**. Tener `.sql` versionados pesa más en una entrevista que cualquier cantidad de pandas. Esta decisión convierte el SQL en la fuente de verdad operativa.
+- **Pandas se mantiene como fallback útil**: para exploración interactiva en notebooks, para construir tests sintéticos sin necesitar disco, y como segunda implementación que detecta divergencias en SQL vía tests de regresión.
+- **Tests cruzados** (`tests/test_gold_engines.py`) verifican que ambos producen el mismo output con tolerancia 1e-3. Si SQL diverge, el test falla con la columna y fila exactas del problema.
+
+**Alternativa descartada (solo SQL)**: borrar `compute_*` pandas. Más limpio en el corto plazo, pero pierdes la red de seguridad que detecta bugs de SQL durante el desarrollo. Mantenerlos cuesta poco código y ahorra mucho debugging.
+
+**Costo asumido**: dos lugares para mantener la lógica si la regla de negocio cambia. Mitigación: los tests de regresión disparan el día que alguien edite uno y olvide el otro.
+
+**Aprendizaje del proceso**: la primera versión SQL de `dim_tiempo` usaba `EXTRACT(DOW FROM fecha)` (convención PostgreSQL: domingo=0..sábado=6) y eso divergía de pandas (`dayofweek` con convención Python: lunes=0..domingo=6). Sin tests de regresión, este bug habría salido en producción. La fórmula correcta en DuckDB es `(EXTRACT(DOW FROM fecha)::BIGINT + 6) % 7`.
+
 ## 5. Validación con Pandera al final de cada capa
 
 **Decisión**: cada función productora (`ingest_*`, `transform_*`, `compute_*`) valida su output contra un `DataFrameSchema` antes de retornarlo.
