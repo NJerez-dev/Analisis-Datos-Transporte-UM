@@ -102,7 +102,7 @@ make run-all  # bronze -> silver -> gold
 uv run pytest --cov=transporte --cov-report=term-missing
 ```
 
-45 tests, 90% de cobertura. Lo cubierto: lógica de negocio en bronze/silver/gold (ambos engines), schemas pandera, runner SQL y tests de regresión SQL ↔ pandas. Lo no cubierto: `argparse` y `__main__` handlers.
+51 tests, 90% de cobertura. Lo cubierto: lógica de negocio en bronze/silver/gold (ambos engines), schemas pandera, runner SQL, tests de regresión SQL ↔ pandas y window functions avanzadas. Lo no cubierto: `argparse` y `__main__` handlers.
 
 ## Estructura del repositorio
 
@@ -117,7 +117,8 @@ uv run pytest --cov=transporte --cov-report=term-missing
 │   ├── schemas.py                 # Contratos pandera por capa
 │   └── sql_runner.py              # Helper para ejecutar queries .sql con DuckDB
 ├── sql/
-│   └── gold/                      # 6 queries SQL equivalentes a las funciones compute_* pandas
+│   ├── gold/                      # 6 queries SQL equivalentes a las funciones compute_* pandas
+│   └── analysis/                  # Queries exploratorias con RANK, QUALIFY, window functions avanzadas
 ├── notebooks/
 │   └── legacy/                    # Notebooks originales pre-refactor (referencia)
 ├── data/
@@ -127,9 +128,10 @@ uv run pytest --cov=transporte --cov-report=term-missing
 │   └── exports/                   # CSVs UTF-8 BOM para Power BI (gitignored)
 ├── scripts/
 │   └── build_sample.py            # Regenera la muestra anonimizada desde el crudo
-├── tests/                         # 45 tests (bronze, silver, gold, schemas, SQL)
+├── tests/                         # 51 tests (bronze, silver, gold, schemas, SQL gold + análisis)
 ├── docs/
-│   └── decisiones-diseno.md       # Decisiones técnicas con su porqué
+│   ├── decisiones-diseno.md       # Decisiones técnicas con su porqué
+│   └── sql-decisiones.md          # Patrones SQL, EXPLAIN y optimización
 ├── dashboard_supply_chain.html    # Dashboard estático
 ├── Makefile                       # Atajos para Linux/Mac/WSL
 ├── pyproject.toml                 # Proyecto + deps + ruff/pytest config
@@ -156,7 +158,7 @@ Sobre 1.013 viajes operativos analizados:
 
 ## Decisiones de diseño
 
-Las decisiones técnicas con su porqué viven en [`docs/decisiones-diseno.md`](docs/decisiones-diseno.md). Resumen:
+Las decisiones técnicas con su porqué viven en [`docs/decisiones-diseno.md`](docs/decisiones-diseno.md). Para los patrones SQL específicos (CTEs, `RANK`/`QUALIFY`, window functions, `EXPLAIN`) ver [`docs/sql-decisiones.md`](docs/sql-decisiones.md). Resumen:
 
 - **Arquitectura medallón** con responsabilidades estrictas por capa.
 - **Bronze como string + metadata**: cero inferencia de tipos en la capa de ingesta.
