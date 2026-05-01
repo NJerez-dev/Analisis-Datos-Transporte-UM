@@ -121,9 +121,7 @@ def test_fact_viajes_misma_cantidad_que_silver(viajes_silver: pd.DataFrame) -> N
     assert df["fecha_key"].str.match(r"^\d{4}-\d{2}-\d{2}$|^$").all()
 
 
-def test_goldify_all_exports_csvs_when_dir_provided(
-    silver_dir: Path, tmp_path: Path
-) -> None:
+def test_goldify_all_exports_csvs_when_dir_provided(silver_dir: Path, tmp_path: Path) -> None:
     parquet_dir = tmp_path / "parquet"
     exports_dir = tmp_path / "exports"
     gold.goldify_all(input_dir=silver_dir, output_dir=parquet_dir, exports_dir=exports_dir)
@@ -132,9 +130,7 @@ def test_goldify_all_exports_csvs_when_dir_provided(
         assert (exports_dir / f"{name}.csv").exists()
 
 
-def test_goldify_all_skips_csvs_when_exports_none(
-    silver_dir: Path, tmp_path: Path
-) -> None:
+def test_goldify_all_skips_csvs_when_exports_none(silver_dir: Path, tmp_path: Path) -> None:
     gold.goldify_all(input_dir=silver_dir, output_dir=tmp_path, exports_dir=None)
     csvs = list(tmp_path.glob("*.csv"))
     assert csvs == []

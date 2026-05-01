@@ -1,8 +1,14 @@
 # Análisis de Transporte de Última Milla
 
-Pipeline de análisis de operación logística (transporte de última milla) construido con **arquitectura medallón** sobre datos reales de viajes y devoluciones. El proyecto está siendo **refactorizado a estándar de Data Engineering** desde notebooks ad-hoc a un paquete reproducible con tests, CI y orquestación.
+[![CI](https://github.com/NJerez-dev/Analisis-Datos-Transporte-UM/actions/workflows/ci.yml/badge.svg)](https://github.com/NJerez-dev/Analisis-Datos-Transporte-UM/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.12-blue)
+![uv](https://img.shields.io/badge/managed%20by-uv-blueviolet)
+![ruff](https://img.shields.io/badge/lint-ruff-orange)
+![coverage](https://img.shields.io/badge/coverage-88%25-brightgreen)
 
-> **Estado**: refactor en curso. Los notebooks originales se conservan en `notebooks/legacy/` como referencia mientras se extrae la lógica a `src/transporte/`. El roadmap del refactor está al final del README.
+Pipeline de análisis de operación logística (transporte de última milla) construido con **arquitectura medallón** sobre datos reales de viajes y devoluciones. Refactorizado de notebooks ad-hoc a un paquete Python reproducible con tests, validación de schemas con `pandera` y CI.
+
+> **Estado**: refactor cerrado. Los notebooks originales se conservan en `notebooks/legacy/` como referencia histórica. La lógica viva está en `src/transporte/{bronze,silver,gold,schemas}.py`.
 
 ## Problema de negocio
 
@@ -29,7 +35,7 @@ flowchart LR
     A --> B --> C --> D
 ```
 
-**Diseño**: las tres capas son notebooks/módulos independientes que se pueden orquestar con `make run-all` (o por separado). Bronze lee la fuente Excel sin transformar; Silver normaliza tipos, fechas, regiones, y resuelve la relación viajes ↔ devoluciones; Gold agrega y produce los KPIs que consume el dashboard.
+**Diseño**: tres módulos Python independientes que se ejecutan vía CLI o se orquestan secuencialmente. Bronze lee Excel y persiste como Parquet (todo string + metadata de ingesta); Silver tipifica, normaliza texto y calcula KPIs operativos básicos; Gold agrega y produce las 6 tablas del modelo dimensional para Power BI. Cada capa valida su output con `pandera`.
 
 ## Stack técnico
 
@@ -46,7 +52,7 @@ flowchart LR
 
 ## Cómo correr
 
-**Pre-requisitos**: [uv](https://docs.astral.sh/uv/) instalado. Python lo provee `uv` automáticamente.
+**Pre-requisitos**: [uv](https://docs.astral.sh/uv/) instalado. Python lo provee `uv` automáticamente leyendo `.python-version`.
 
 ```bash
 git clone https://github.com/NJerez-dev/Analisis-Datos-Transporte-UM.git
@@ -54,39 +60,73 @@ cd Analisis-Datos-Transporte-UM
 uv sync
 ```
 
-Para correr sobre la **muestra anonimizada** versionada en el repo (50 viajes + 25 devoluciones, suficiente para verificar el pipeline):
+### Sobre la muestra anonimizada (versionada en el repo)
+
+50 viajes + 25 devoluciones, ideal para verificar el pipeline sin acceso al dataset original:
 
 ```bash
-# Una vez que el refactor exponga los puntos de entrada:
-uv run python -m transporte.bronze --input data/sample/transporte_um_sample.xlsx
+uv run python -m transporte.bronze --input data/sample/transporte_um_sample.xlsx --output-dir data/processed
+uv run python -m transporte.silver --input-dir data/processed --output-dir data/processed
+uv run python -m transporte.gold   --input-dir data/processed --output-dir data/processed --exports-dir data/exports
+```
+
+### Sobre datos reales
+
+Coloca el Excel fuente en `data/raw/transporte_um.xlsx` (no se distribuye vía git) y omite el flag `--input`:
+
+```bash
+uv run python -m transporte.bronze
 uv run python -m transporte.silver
 uv run python -m transporte.gold
 ```
 
-Para correr sobre **datos reales**, colocar el dataset crudo en `data/raw/transporte_um.xlsx` (no se distribuye vía git) y apuntar el `--input` a esa ruta. Para regenerar la muestra anonimizada:
+### Atajos con `make` (Linux / macOS / WSL / Git Bash con make)
 
 ```bash
-uv run python scripts/build_sample.py
+make setup    # uv sync
+make lint     # ruff
+make test     # pytest
+make sample   # regenera la muestra anonimizada desde el crudo
+make run-all  # bronze -> silver -> gold
 ```
+
+> **Nota Windows**: `make` no viene preinstalado en Windows + Git Bash. Opciones: instalarlo via Git for Windows extras / scoop / chocolatey, **o** usar los comandos `uv run python -m transporte.X` directos (son la fuente de verdad).
+
+### Tests y cobertura
+
+```bash
+uv run pytest --cov=transporte --cov-report=term-missing
+```
+
+35 tests, 88% de cobertura. Lo cubierto: lógica de negocio en bronze/silver/gold y todos los schemas. Lo no cubierto: `argparse` y `__main__` handlers.
 
 ## Estructura del repositorio
 
 ```
 .
-├── src/transporte/         # Código del pipeline (bronze, silver, gold) — TBD
+├── .github/workflows/ci.yml       # CI: ruff + pytest + coverage en cada push/PR
+├── src/transporte/
+│   ├── __init__.py
+│   ├── bronze.py                  # Ingesta Excel → Parquet
+│   ├── silver.py                  # Tipos, normalización, KPIs operativos
+│   ├── gold.py                    # KPIs agregados + modelo dimensional + CSVs PBI
+│   └── schemas.py                 # Contratos pandera por capa
 ├── notebooks/
-│   └── legacy/             # Notebooks originales pre-refactor (referencia histórica)
+│   └── legacy/                    # Notebooks originales pre-refactor (referencia)
 ├── data/
-│   ├── raw/                # Dataset crudo (gitignored)
-│   ├── processed/          # Outputs intermedios Parquet (gitignored)
-│   └── sample/             # Muestra anonimizada versionada (50+25 filas)
+│   ├── raw/                       # Dataset crudo (gitignored)
+│   ├── processed/                 # Outputs intermedios Parquet (gitignored)
+│   ├── sample/                    # Muestra anonimizada versionada (50+25 filas)
+│   └── exports/                   # CSVs UTF-8 BOM para Power BI (gitignored)
 ├── scripts/
-│   └── build_sample.py     # Regenera la muestra anonimizada desde el crudo
-├── tests/                  # Suite pytest (TBD)
-├── docs/                   # Documentación adicional
-├── dashboard_supply_chain.html  # Dashboard estático
-├── pyproject.toml          # Proyecto + dependencias + ruff/pytest
-└── uv.lock                 # Lockfile reproducible
+│   └── build_sample.py            # Regenera la muestra anonimizada desde el crudo
+├── tests/                         # 35 tests (bronze, silver, gold, schemas)
+├── docs/
+│   └── decisiones-diseno.md       # Decisiones técnicas con su porqué
+├── dashboard_supply_chain.html    # Dashboard estático
+├── Makefile                       # Atajos para Linux/Mac/WSL
+├── pyproject.toml                 # Proyecto + deps + ruff/pytest config
+└── uv.lock                        # Lockfile reproducible
 ```
 
 ## Principales hallazgos
@@ -109,12 +149,17 @@ Sobre 1.013 viajes operativos analizados:
 
 ## Decisiones de diseño
 
-- **Arquitectura medallón** para separar "datos crudos como llegaron" de "datos analíticos confiables". Las tres capas se corren independientes y son auditables.
-- **Excel como fuente bronze**: refleja la realidad operativa (la fuente real es así). El pipeline está preparado para cambiar a CSV/Parquet/DB sin tocar silver/gold.
-- **Parquet en silver y gold**: columnar, comprimido, tipado. Reduce I/O 10-50x respecto a CSV.
-- **`uv` sobre `pip`/`poetry`**: 10-100x más rápido en resolución, lockfile determinista, gestiona Python solo.
-- **Muestra anonimizada versionada**: permite que cualquiera ejecute el pipeline y los tests sin acceso al crudo. Anonimización determinista (hash SHA1) preserva relaciones entre hojas.
-- **`pandas` vs `polars` / `Spark`**: 1.013 filas no justifican Spark; pandas es suficiente y la curva de aprendizaje del equipo lo favorece. Si el dataset crece a millones de filas, migración natural a `polars` o DuckDB.
+Las decisiones técnicas con su porqué viven en [`docs/decisiones-diseno.md`](docs/decisiones-diseno.md). Resumen:
+
+- **Arquitectura medallón** con responsabilidades estrictas por capa.
+- **Bronze como string + metadata**: cero inferencia de tipos en la capa de ingesta.
+- **Parquet** en lugar de SQLite (formato del notebook original).
+- **`uv`** en lugar de `pip + venv` o `poetry`.
+- **Validación con `pandera`** al final de cada capa, permisiva por diseño (`strict=False`).
+- **Muestra anonimizada versionada** con anonimización determinista (SHA1) para CI sin acceso al crudo.
+- **`pandas` (no Spark)**: 1.013 filas no justifican Spark; migración natural a `polars` / `DuckDB` si el volumen crece.
+- **Logging estructurado** en lugar de `print`.
+- **CI con cobertura mínima 80%** (real: 88%).
 
 ## Limitaciones conocidas
 
@@ -128,13 +173,14 @@ Sobre 1.013 viajes operativos analizados:
 
 - [x] Estructura DE-grade del repo (entorno reproducible con `uv`, layout estándar).
 - [x] Muestra anonimizada versionada para tests y CI.
-- [ ] Extraer lógica de notebooks a módulos en `src/transporte/{bronze,silver,gold}.py`.
-- [ ] Tests unitarios + smoke test del pipeline completo sobre la muestra.
-- [ ] Validación de schemas con `pandera` (contratos por capa).
-- [ ] Migración de outputs intermedios a Parquet particionado.
-- [ ] CI con GitHub Actions: `ruff` + `pytest` en cada PR.
-- [ ] Diagrama de arquitectura técnico extendido en `docs/`.
-- [ ] Orquestación con Airflow local (Docker) — bloque siguiente del roadmap personal.
+- [x] Extraer lógica de notebooks a módulos en `src/transporte/{bronze,silver,gold}.py`.
+- [x] Tests unitarios + smoke test del pipeline completo sobre la muestra (35 tests, 88% cobertura).
+- [x] Validación de schemas con `pandera` (contratos por capa).
+- [x] CI con GitHub Actions: `ruff` + `pytest` en cada push/PR, badge en README.
+- [x] Documento de decisiones de diseño en `docs/`.
+- [ ] Migración de outputs intermedios a Parquet **particionado** por año/mes (deferred: dataset actual es de 1 día).
+- [ ] Orquestación con Airflow local (Docker) — siguiente bloque del roadmap personal.
+- [ ] Ingestión incremental con marca de tiempo — cuando el volumen lo justifique.
 
 ## Dashboard
 

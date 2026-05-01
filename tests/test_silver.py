@@ -41,9 +41,7 @@ def silver_devoluciones(
     return pd.read_parquet(path)
 
 
-def test_silverize_all_writes_two_parquets(
-    bronze_outputs: Path, tmp_path: Path
-) -> None:
+def test_silverize_all_writes_two_parquets(bronze_outputs: Path, tmp_path: Path) -> None:
     outputs = silver.silverize_all(input_dir=bronze_outputs, output_dir=tmp_path)
     assert set(outputs.keys()) == {"viajes", "devoluciones"}
     for path in outputs.values():
@@ -73,9 +71,7 @@ def test_silver_viajes_columns_renamed_to_snake_case(silver_viajes: pd.DataFrame
 
 def test_silver_viajes_no_bronze_metadata(silver_viajes: pd.DataFrame) -> None:
     bronze_meta = [
-        c
-        for c in silver_viajes.columns
-        if c.startswith("_") and c != "_silver_timestamp"
+        c for c in silver_viajes.columns if c.startswith("_") and c != "_silver_timestamp"
     ]
     assert bronze_meta == []
 

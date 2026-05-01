@@ -178,9 +178,7 @@ def compute_kpi_devoluciones(devoluciones: pd.DataFrame) -> pd.DataFrame:
         .reset_index(drop=True)
     )
     total = grouped["cantidad"].sum()
-    grouped["pct_del_total"] = (
-        round(grouped["cantidad"] / total * 100, 2) if total else 0.0
-    )
+    grouped["pct_del_total"] = round(grouped["cantidad"] / total * 100, 2) if total else 0.0
     grouped["_gold_timestamp"] = _now_utc_iso()
     schemas.validate(grouped, schemas.GOLD_KPI_DEVOLUCIONES_SCHEMA, name="gold_kpi_devoluciones")
     return grouped
