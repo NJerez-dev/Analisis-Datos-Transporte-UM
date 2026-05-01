@@ -29,6 +29,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from transporte import schemas
+
 log = logging.getLogger(__name__)
 
 DEFAULT_INPUT = Path("data/raw/transporte_um.xlsx")
@@ -119,6 +121,7 @@ def ingest_viajes(input_path: Path, output_dir: Path) -> Path:
     metadata = IngestionMetadata.now(fuente=SHEET_VIAJES, archivo=input_path.name)
     df = read_sheet_as_strings(input_path, SHEET_VIAJES)
     df = add_metadata(df, metadata)
+    schemas.validate(df, schemas.BRONZE_VIAJES_SCHEMA, name="bronze_viajes")
     output_path = output_dir / OUTPUT_VIAJES
     write_parquet(df, output_path)
     return output_path
@@ -130,6 +133,7 @@ def ingest_devoluciones(input_path: Path, output_dir: Path) -> Path:
     df = read_sheet_as_strings(input_path, SHEET_DEVOLUCIONES)
     df = normalize_column_names(df, DEVOLUCIONES_RENAMES)
     df = add_metadata(df, metadata)
+    schemas.validate(df, schemas.BRONZE_DEVOLUCIONES_SCHEMA, name="bronze_devoluciones")
     output_path = output_dir / OUTPUT_DEVOLUCIONES
     write_parquet(df, output_path)
     return output_path

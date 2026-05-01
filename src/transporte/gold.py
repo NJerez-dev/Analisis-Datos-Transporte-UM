@@ -32,6 +32,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from transporte import schemas
+
 log = logging.getLogger(__name__)
 
 DEFAULT_DIR = Path("data/processed")
@@ -93,7 +95,7 @@ def compute_kpi_entregas(viajes: pd.DataFrame, devoluciones: pd.DataFrame) -> pd
     patentes = int(viajes["patente"].nunique())
     volumen_total = round(float(viajes["volumen"].sum()), 4)
 
-    return pd.DataFrame(
+    df = pd.DataFrame(
         [
             {
                 "total_viajes": total_viajes,
@@ -111,6 +113,8 @@ def compute_kpi_entregas(viajes: pd.DataFrame, devoluciones: pd.DataFrame) -> pd
             }
         ]
     )
+    schemas.validate(df, schemas.GOLD_KPI_ENTREGAS_SCHEMA, name="gold_kpi_entregas")
+    return df
 
 
 def compute_kpi_por_commerce(viajes: pd.DataFrame) -> pd.DataFrame:
@@ -131,6 +135,7 @@ def compute_kpi_por_commerce(viajes: pd.DataFrame) -> pd.DataFrame:
         .reset_index()
     )
     grouped["_gold_timestamp"] = _now_utc_iso()
+    schemas.validate(grouped, schemas.GOLD_KPI_POR_COMMERCE_SCHEMA, name="gold_kpi_por_commerce")
     return grouped
 
 
@@ -153,6 +158,7 @@ def compute_kpi_por_patente(viajes: pd.DataFrame) -> pd.DataFrame:
         .reset_index(drop=True)
     )
     grouped["_gold_timestamp"] = _now_utc_iso()
+    schemas.validate(grouped, schemas.GOLD_KPI_POR_PATENTE_SCHEMA, name="gold_kpi_por_patente")
     return grouped
 
 
@@ -176,6 +182,7 @@ def compute_kpi_devoluciones(devoluciones: pd.DataFrame) -> pd.DataFrame:
         round(grouped["cantidad"] / total * 100, 2) if total else 0.0
     )
     grouped["_gold_timestamp"] = _now_utc_iso()
+    schemas.validate(grouped, schemas.GOLD_KPI_DEVOLUCIONES_SCHEMA, name="gold_kpi_devoluciones")
     return grouped
 
 
@@ -202,21 +209,23 @@ def compute_dim_tiempo(viajes: pd.DataFrame) -> pd.DataFrame:
         )
 
     fechas = pd.date_range(start=fecha_min, end=fecha_max, freq="D")
-    return pd.DataFrame(
+    df = pd.DataFrame(
         {
             "fecha": fechas.strftime("%Y-%m-%d"),
-            "anio": fechas.year,
-            "mes": fechas.month,
+            "anio": fechas.year.astype("int64"),
+            "mes": fechas.month.astype("int64"),
             "nombre_mes": fechas.strftime("%B"),
-            "dia": fechas.day,
-            "dia_semana": fechas.dayofweek,
+            "dia": fechas.day.astype("int64"),
+            "dia_semana": fechas.dayofweek.astype("int64"),
             "nombre_dia": fechas.strftime("%A"),
-            "semana_anio": fechas.isocalendar().week.values,
-            "trimestre": fechas.quarter,
+            "semana_anio": fechas.isocalendar().week.values.astype("int64"),
+            "trimestre": fechas.quarter.astype("int64"),
             "es_fin_semana": (fechas.dayofweek >= 5).astype(int),
             "anio_mes": fechas.strftime("%Y-%m"),
         }
     )
+    schemas.validate(df, schemas.GOLD_DIM_TIEMPO_SCHEMA, name="gold_dim_tiempo")
+    return df
 
 
 def compute_fact_viajes(viajes: pd.DataFrame) -> pd.DataFrame:
@@ -225,6 +234,7 @@ def compute_fact_viajes(viajes: pd.DataFrame) -> pd.DataFrame:
     fact = viajes[cols].copy()
     fact["fecha_key"] = viajes["fecha_pactada"].dt.strftime("%Y-%m-%d")
     fact["_gold_timestamp"] = _now_utc_iso()
+    schemas.validate(fact, schemas.GOLD_FACT_VIAJES_SCHEMA, name="gold_fact_viajes")
     return fact
 
 

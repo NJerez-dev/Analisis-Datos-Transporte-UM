@@ -30,6 +30,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from transporte import schemas
+
 log = logging.getLogger(__name__)
 
 DEFAULT_DIR = Path("data/processed")
@@ -117,11 +119,14 @@ def transform_viajes(bronze_df: pd.DataFrame) -> pd.DataFrame:
     df["region"] = _normalize_text(df["region"], title_case=False)
     df["commerce"] = _normalize_text(df["commerce"], title_case=True)
 
-    df["dias_retraso"] = (df["fecha_entrega_real"] - df["fecha_pactada"]).dt.days
+    df["dias_retraso"] = (
+        (df["fecha_entrega_real"] - df["fecha_pactada"]).dt.days.astype("Float64")
+    )
     df["entrega_on_time"] = (df["dias_retraso"] <= 0).astype(int)
     df["flag_no_entregado"] = (df["estado"] != ESTADO_TERMINADO).astype(int)
 
     df["_silver_timestamp"] = datetime.now(tz=UTC).isoformat()
+    schemas.validate(df, schemas.SILVER_VIAJES_SCHEMA, name="silver_viajes")
     return df
 
 
@@ -134,8 +139,11 @@ def transform_devoluciones(bronze_df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = _normalize_text(df[col], title_case=True)
 
-    df["dias_hasta_devolucion"] = (df["fecha_devolucion"] - df["fecha_viaje"]).dt.days
+    df["dias_hasta_devolucion"] = (
+        (df["fecha_devolucion"] - df["fecha_viaje"]).dt.days.astype("Float64")
+    )
     df["_silver_timestamp"] = datetime.now(tz=UTC).isoformat()
+    schemas.validate(df, schemas.SILVER_DEVOLUCIONES_SCHEMA, name="silver_devoluciones")
     return df
 
 
