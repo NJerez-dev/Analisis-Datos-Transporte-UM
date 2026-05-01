@@ -45,17 +45,11 @@ def anonimizar_viajes(df: pd.DataFrame) -> pd.DataFrame:
     out["Patente"] = out["Patente"].map(lambda v: hash_id(v, "VEH", 6))
     out["Empresa"] = "EmpresaTransporteA"
     out["Idruta"] = out["Idruta"].map(lambda v: hash_id(v, "RUT"))
-    out["Direccion"] = out["Direccion"].apply(
-        lambda _: "Direccion anonimizada"
-    )
-    out["Commerce"] = out["Commerce"].apply(
-        lambda v: "ClienteRetailA" if pd.notna(v) else v
-    )
+    out["Direccion"] = out["Direccion"].apply(lambda _: "Direccion anonimizada")
+    out["Commerce"] = out["Commerce"].apply(lambda v: "ClienteRetailA" if pd.notna(v) else v)
     for col in ("LPN", "LPN_Container", "ParentOrder"):
         prefix = col[:3].upper()
-        out[col] = out[col].apply(
-            lambda v, prefix=prefix: hash_id(v, prefix) if pd.notna(v) else v
-        )
+        out[col] = out[col].apply(lambda v, prefix=prefix: hash_id(v, prefix) if pd.notna(v) else v)
     return out
 
 
@@ -104,9 +98,7 @@ def main() -> None:
         devoluciones_sample.to_excel(writer, sheet_name="DEVOLUCIONES", index=False)
 
     log.info("Muestra anonimizada escrita en %s", SAMPLE)
-    log.info(
-        "Filas: viajes=%s, devoluciones=%s", len(viajes_sample), len(devoluciones_sample)
-    )
+    log.info("Filas: viajes=%s, devoluciones=%s", len(viajes_sample), len(devoluciones_sample))
 
 
 if __name__ == "__main__":
