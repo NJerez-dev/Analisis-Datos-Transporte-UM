@@ -3,8 +3,9 @@
 [![CI](https://github.com/NJerez-dev/Analisis-Datos-Transporte-UM/actions/workflows/ci.yml/badge.svg)](https://github.com/NJerez-dev/Analisis-Datos-Transporte-UM/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![uv](https://img.shields.io/badge/managed%20by-uv-blueviolet)
+![DuckDB](https://img.shields.io/badge/SQL-DuckDB-yellow)
 ![ruff](https://img.shields.io/badge/lint-ruff-orange)
-![coverage](https://img.shields.io/badge/coverage-88%25-brightgreen)
+![coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)
 
 Pipeline de análisis de operación logística (transporte de última milla) construido con **arquitectura medallón** sobre datos reales de viajes y devoluciones. Refactorizado de notebooks ad-hoc a un paquete Python reproducible con tests, validación de schemas con `pandera` y CI.
 
@@ -44,6 +45,7 @@ flowchart LR
 | Lenguaje | Python 3.12 |
 | Gestor de entorno | [`uv`](https://docs.astral.sh/uv/) |
 | Procesamiento | `pandas`, `pyarrow` |
+| Motor SQL analítico | [`duckdb`](https://duckdb.org) (lee Parquet directo, in-process) |
 | Validación de datos | `pandera` |
 | Lectura de Excel | `openpyxl` |
 | Tests | `pytest` |
@@ -69,6 +71,8 @@ uv run python -m transporte.bronze --input data/sample/transporte_um_sample.xlsx
 uv run python -m transporte.silver --input-dir data/processed --output-dir data/processed
 uv run python -m transporte.gold   --input-dir data/processed --output-dir data/processed --exports-dir data/exports
 ```
+
+> **Engine de Gold**: por defecto `--engine sql` (ejecuta las queries en `sql/gold/*.sql` con DuckDB). Para forzar el cálculo en pandas usar `--engine pandas`. Ambos engines producen los mismos Parquets/CSVs (verificado por `tests/test_gold_engines.py`).
 
 ### Sobre datos reales
 
@@ -98,7 +102,7 @@ make run-all  # bronze -> silver -> gold
 uv run pytest --cov=transporte --cov-report=term-missing
 ```
 
-35 tests, 88% de cobertura. Lo cubierto: lógica de negocio en bronze/silver/gold y todos los schemas. Lo no cubierto: `argparse` y `__main__` handlers.
+45 tests, 90% de cobertura. Lo cubierto: lógica de negocio en bronze/silver/gold (ambos engines), schemas pandera, runner SQL y tests de regresión SQL ↔ pandas. Lo no cubierto: `argparse` y `__main__` handlers.
 
 ## Estructura del repositorio
 
@@ -109,8 +113,11 @@ uv run pytest --cov=transporte --cov-report=term-missing
 │   ├── __init__.py
 │   ├── bronze.py                  # Ingesta Excel → Parquet
 │   ├── silver.py                  # Tipos, normalización, KPIs operativos
-│   ├── gold.py                    # KPIs agregados + modelo dimensional + CSVs PBI
-│   └── schemas.py                 # Contratos pandera por capa
+│   ├── gold.py                    # 6 tablas Gold con engine dual (SQL default, pandas fallback)
+│   ├── schemas.py                 # Contratos pandera por capa
+│   └── sql_runner.py              # Helper para ejecutar queries .sql con DuckDB
+├── sql/
+│   └── gold/                      # 6 queries SQL equivalentes a las funciones compute_* pandas
 ├── notebooks/
 │   └── legacy/                    # Notebooks originales pre-refactor (referencia)
 ├── data/
@@ -120,7 +127,7 @@ uv run pytest --cov=transporte --cov-report=term-missing
 │   └── exports/                   # CSVs UTF-8 BOM para Power BI (gitignored)
 ├── scripts/
 │   └── build_sample.py            # Regenera la muestra anonimizada desde el crudo
-├── tests/                         # 35 tests (bronze, silver, gold, schemas)
+├── tests/                         # 45 tests (bronze, silver, gold, schemas, SQL)
 ├── docs/
 │   └── decisiones-diseno.md       # Decisiones técnicas con su porqué
 ├── dashboard_supply_chain.html    # Dashboard estático
@@ -155,11 +162,12 @@ Las decisiones técnicas con su porqué viven en [`docs/decisiones-diseno.md`](d
 - **Bronze como string + metadata**: cero inferencia de tipos en la capa de ingesta.
 - **Parquet** en lugar de SQLite (formato del notebook original).
 - **`uv`** en lugar de `pip + venv` o `poetry`.
+- **Engine dual en Gold (SQL default + pandas fallback)**: las 6 tablas Gold se calculan con queries DuckDB en `sql/gold/` por defecto. Pandas queda como fallback para exploración interactiva. Tests de regresión `tests/test_gold_engines.py` y `tests/test_sql_gold.py` verifican equivalencia entre ambos.
 - **Validación con `pandera`** al final de cada capa, permisiva por diseño (`strict=False`).
 - **Muestra anonimizada versionada** con anonimización determinista (SHA1) para CI sin acceso al crudo.
-- **`pandas` (no Spark)**: 1.013 filas no justifican Spark; migración natural a `polars` / `DuckDB` si el volumen crece.
+- **`pandas` + `duckdb` (no Spark)**: 1.013 filas no justifican Spark; DuckDB cubre el lado SQL analítico; migración natural a `polars` / Spark si el volumen crece.
 - **Logging estructurado** en lugar de `print`.
-- **CI con cobertura mínima 80%** (real: 88%).
+- **CI con cobertura mínima 80%** (real: 90%).
 
 ## Limitaciones conocidas
 
